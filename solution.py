@@ -126,7 +126,7 @@ class Model(object):
 
                     print('doing loss')
                     # Calculous of the weighted loss
-                    loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.matmul( f[0], F.one_hot(batch_y))))
+                    loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.tensordot( f[0], F.one_hot(batch_y), dims =(1) )))
                     pi_i = pi_i / 2
                     print('doing backward')
                     loss.backward()
