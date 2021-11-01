@@ -87,6 +87,8 @@ class Model(object):
         :param dataset: Dataset you should use for training
         """
 
+        print('Model starting to train')
+
         train_loader = torch.utils.data.DataLoader(
             dataset, batch_size=self.batch_size, shuffle=True, drop_last=True
         )
@@ -95,13 +97,14 @@ class Model(object):
 
         progress_bar = trange(self.num_epochs)
         for _ in progress_bar:
+            print(f'epoch number {_}')
             num_batches = len(train_loader)
             pi_i = 2**(num_batches - 1) / (2**num_batches - 1)
             for batch_idx, (batch_x, batch_y) in enumerate(train_loader):
                 # batch_x are of shape (batch_size, 784), batch_y are of shape (batch_size,)
 
                 self.network.zero_grad()
-
+                print('starting forward pass')
                 if isinstance(self.network, DenseNet):
                     # DenseNet training step
 
@@ -121,14 +124,16 @@ class Model(object):
 
                     f = self.network.forward(batch_x)
 
+                    print('doing loss')
                     # Calculous of the weighted loss
                     loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.matmul( f[0], F.y_one_hot(batch_y))))
                     pi_i = pi_i / 2
-
+                    print('doing backward')
                     loss.backward()
 
                     # TODO: Implement Bayes by backprop training here
 
+                print('doing gradient step')
                 self.optimizer.step()
 
                 # Update progress bar with accuracy occasionally
@@ -182,6 +187,8 @@ class BayesianLayer(nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
+
+        print(f'initialising bayesian layer of size {self.in_features} x {self.out_features}')
         self.use_bias = bias
 
         # TODO: Create a suitable prior for weights and biases as an instance of ParameterDistribution.
@@ -203,7 +210,8 @@ class BayesianLayer(nn.Module):
         #      torch.nn.Parameter(torch.zeros((out_features, in_features))),
         #      torch.nn.Parameter(torch.ones((out_features, in_features)))
         #  )
-        self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features, in_features))),torch.nn.Parameter(torch.ones((out_features, in_features))))
+        self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features*in_features))),
+                                                                  torch.nn.Parameter(torch.ones((out_features*in_features))))
 
         assert isinstance(self.weights_var_posterior, ParameterDistribution)
         assert any(True for _ in self.weights_var_posterior.parameters()), 'Weight posterior must have parameters'
@@ -211,7 +219,7 @@ class BayesianLayer(nn.Module):
         if self.use_bias:
             # TODO: As for the weights, create the bias variational posterior instance here.
             #  Make sure to follow the same rules as for the weight variational posterior.
-            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features, in_features))),torch.nn.Parameter(torch.ones((out_features, in_features))))
+            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features,))),torch.nn.Parameter(torch.ones((out_features,))))
             assert isinstance(self.bias_var_posterior, ParameterDistribution)
             assert any(True for _ in self.bias_var_posterior.parameters()), 'Bias posterior must have parameters'
         else:
