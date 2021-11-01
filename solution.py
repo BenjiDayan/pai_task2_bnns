@@ -126,10 +126,10 @@ class Model(object):
 
                     print('doing loss')
                     # Calculous of the weighted loss
-                    loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.tensordot( f[0], F.one_hot(batch_y), dims =(1) )))
+                    loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.sum( f[0] * F.one_hot(batch_y), dim = 1 )))
                     pi_i = pi_i / 2
                     print('doing backward')
-                    loss.backward()
+                    loss.backward(retain_graph = True)
 
                     # TODO: Implement Bayes by backprop training here
 
@@ -303,19 +303,14 @@ class BayesNet(nn.Module):
         current_features = x
 
         for idx, layer in enumerate(self.layers):
-            print(f'inside BayesNet: about to forward layer {idx}')
-            print(f'current_features shape {current_features.shape}')
             f = layer.forward(current_features)
             new_features = f[0]
-            print(f'new_features shape: {new_features.shape}')
             log_prior += f[1]
             log_variational_posterior += f[2]
             if idx < len(self.layers) - 1:
-                print('doing activation')
                 new_features = self.activation(new_features)
             current_features = new_features
-            print(f'current_features shape {current_features.shape}')
-
+            
         output_features = current_features
         
         return output_features, log_prior, log_variational_posterior
