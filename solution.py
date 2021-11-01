@@ -196,7 +196,8 @@ class BayesianLayer(nn.Module):
         #  You can create constants using torch.tensor(...).
         #  Do NOT use torch.Parameter(...) here since the prior should not be optimized!
         #  Example: self.prior = MyPrior(torch.tensor(0.0), torch.tensor(1.0))
-        self.prior = UnivariateGaussian(torch.tensor(0.0), torch.tensor(1.0))
+        self.weights_prior = MultivariateDiagonalGaussian(torch.zeros(out_features * in_features), torch.ones(out_features * in_features))
+        self.bias_prior = MultivariateDiagonalGaussian(torch.zeros(out_features), torch.ones(out_features))
         assert isinstance(self.prior, ParameterDistribution)
         assert not any(True for _ in self.prior.parameters()), 'Prior cannot have parameters'
 
@@ -243,12 +244,14 @@ class BayesianLayer(nn.Module):
         #  and if yes, include the bias as well.
         
         weights = self.weights_var_posterior.sample()
-        bias = None
         log_prior = self.prior.log_likelihood(weights)
         log_variational_posterior = self.weights_var_posterior.log_likelihood(weights)
+        bias = None
         if self.use_bias:
             bias = self.bias_var_posterior.sample()
+            log_prior += self.bias_prior.log_likelihood(bias)
             log_variational_posterior += self.bias_var_posterior.log_likelihood(bias)
+
 
         return F.linear(inputs, weights, bias), log_prior, log_variational_posterior
 
