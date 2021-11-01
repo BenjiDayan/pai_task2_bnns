@@ -194,7 +194,7 @@ class BayesianLayer(nn.Module):
         #      torch.nn.Parameter(torch.zeros((out_features, in_features))),
         #      torch.nn.Parameter(torch.ones((out_features, in_features)))
         #  )
-        self.weights_var_posterior = None
+        self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features, in_features))),torch.nn.Parameter(torch.ones((out_features, in_features))))
 
         assert isinstance(self.weights_var_posterior, ParameterDistribution)
         assert any(True for _ in self.weights_var_posterior.parameters()), 'Weight posterior must have parameters'
@@ -202,7 +202,7 @@ class BayesianLayer(nn.Module):
         if self.use_bias:
             # TODO: As for the weights, create the bias variational posterior instance here.
             #  Make sure to follow the same rules as for the weight variational posterior.
-            self.bias_var_posterior = None
+            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features, in_features))),torch.nn.Parameter(torch.ones((out_features, in_features))))
             assert isinstance(self.bias_var_posterior, ParameterDistribution)
             assert any(True for _ in self.bias_var_posterior.parameters()), 'Bias posterior must have parameters'
         else:
@@ -224,10 +224,12 @@ class BayesianLayer(nn.Module):
         # TODO: Perform a forward pass as described in this method's docstring.
         #  Make sure to check whether `self.use_bias` is True,
         #  and if yes, include the bias as well.
-        log_prior = torch.tensor(0.0)
-        log_variational_posterior = torch.tensor(0.0)
-        weights = None
+        log_prior = self.prior.log_likelihood()
+        log_variational_posterior = self.weights_var_posterior.log_likelihood()
+        weights = self.weights_var_posterior.sample()
         bias = None
+        if self.use_bias:
+            bias = self.bias_var_posterior.sample()
 
         return F.linear(inputs, weights, bias), log_prior, log_variational_posterior
 
