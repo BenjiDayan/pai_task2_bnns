@@ -118,6 +118,8 @@ class Model(object):
                     # BayesNet training step via Bayes by backprop
                     assert isinstance(self.network, BayesNet)
 
+                    f = self.network.forward(batch_x)
+
                     # TODO: Implement Bayes by backprop training here
 
                 self.optimizer.step()
@@ -230,6 +232,7 @@ class BayesianLayer(nn.Module):
         bias = None
         if self.use_bias:
             bias = self.bias_var_posterior.sample()
+            log_variational_posterior += self.bias_var_posterior.log_likelihood()
 
         return F.linear(inputs, weights, bias), log_prior, log_variational_posterior
 
