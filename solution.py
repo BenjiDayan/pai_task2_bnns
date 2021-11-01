@@ -276,8 +276,19 @@ class BayesNet(nn.Module):
         #  Don't forget to apply your activation function in between BayesianLayers!
         log_prior = torch.tensor(0.0)
         log_variational_posterior = torch.tensor(0.0)
-        output_features = None
+        current_features = x
 
+        for idx, layer in enumerate(self.layers):
+            f = layer.forward(current_features)
+            new_features = f[0]
+            log_prior += f[1]
+            log_variational_posterior += f[2]
+            if idx < len(self.layers) - 1:
+                new_features = self.activation(current_features)
+            current_features = new_features
+
+        output_features = current_features
+        
         return output_features, log_prior, log_variational_posterior
 
     def predict_probabilities(self, x: torch.Tensor, num_mc_samples: int = 10) -> torch.Tensor:
