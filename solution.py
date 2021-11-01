@@ -104,7 +104,7 @@ class Model(object):
                 # batch_x are of shape (batch_size, 784), batch_y are of shape (batch_size,)
 
                 self.network.zero_grad()
-                print('starting forward pass')
+                #print('starting forward pass')
                 if isinstance(self.network, DenseNet):
                     # DenseNet training step
 
@@ -115,6 +115,7 @@ class Model(object):
                     # We use the negative log likelihood as the loss
                     # Combining nll_loss with a log_softmax is better for numeric stability
                     loss = F.nll_loss(F.log_softmax(current_logits, dim=1), batch_y, reduction='sum')
+                    
 
                     # Backpropagate to get the gradients
                     loss.backward()
@@ -124,16 +125,19 @@ class Model(object):
 
                     f = self.network.forward(batch_x)
 
-                    print('doing loss')
+                    #print('doing loss')
                     # Calculous of the weighted loss
                     loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.sum( f[0] * F.one_hot(batch_y), dim = 1 )))
                     pi_i = pi_i / 2
-                    print('doing backward')
+                    print(torch.sum( torch.log( torch.sum( f[0] * F.one_hot(batch_y), dim = 1 )))
+                    print("loss",loss)
+                    #print('doing backward')
+                    torch.autograd.set_detect_anomaly(True)
                     loss.backward(retain_graph = True)
 
                     # TODO: Implement Bayes by backprop training here
 
-                print('doing gradient step')
+                #print('doing gradient step')
                 self.optimizer.step()
 
                 # Update progress bar with accuracy occasionally
@@ -375,7 +379,9 @@ class MultivariateDiagonalGaussian(ParameterDistribution):
         softplus = torch.nn.Softplus()
         #sigma = torch.diag(softplus(self.rho))
         #self.dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, sigma)
-        normal = torch.distributions.Normal(self.mu, softplus(self.rho))
+
+        #normal = torch.distributions.Normal(self.mu, softplus(self.rho)) softplus caused an error during backpropagation
+        normal = torch.distributions.Normal(self.mu, self.rho)
         self.dist = torch.distributions.Independent(normal, 1)
 
     def log_likelihood(self, values: torch.Tensor) -> torch.Tensor:
