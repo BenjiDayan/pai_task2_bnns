@@ -96,6 +96,7 @@ class Model(object):
         progress_bar = trange(self.num_epochs)
         for _ in progress_bar:
             num_batches = len(train_loader)
+            pi_i = 2**(num_batches - 1) / (2**num_batches - 1)
             for batch_idx, (batch_x, batch_y) in enumerate(train_loader):
                 # batch_x are of shape (batch_size, 784), batch_y are of shape (batch_size,)
 
@@ -119,6 +120,12 @@ class Model(object):
                     assert isinstance(self.network, BayesNet)
 
                     f = self.network.forward(batch_x)
+
+                    # Calculous of the weighted loss
+                    loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - torch.sum( torch.log( torch.matmul( f[0], F.y_one_hot(batch_y))))
+                    pi_i = pi_i / 2
+
+                    loss.backward()
 
                     # TODO: Implement Bayes by backprop training here
 
@@ -226,13 +233,14 @@ class BayesianLayer(nn.Module):
         # TODO: Perform a forward pass as described in this method's docstring.
         #  Make sure to check whether `self.use_bias` is True,
         #  and if yes, include the bias as well.
-        log_prior = self.prior.log_likelihood()
-        log_variational_posterior = self.weights_var_posterior.log_likelihood()
+        
         weights = self.weights_var_posterior.sample()
         bias = None
+        log_prior = self.prior.log_likelihood(weights)
+        log_variational_posterior = self.weights_var_posterior.log_likelihood(weights)
         if self.use_bias:
             bias = self.bias_var_posterior.sample()
-            log_variational_posterior += self.bias_var_posterior.log_likelihood()
+            log_variational_posterior += self.bias_var_posterior.log_likelihood(bias)
 
         return F.linear(inputs, weights, bias), log_prior, log_variational_posterior
 
