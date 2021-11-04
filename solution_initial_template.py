@@ -16,8 +16,7 @@ from util import ece, ParameterDistribution
 EXTENDED_EVALUATION = False
 
 
-def run_solution(dataset_train: torch.utils.data.Dataset, data_dir: str = os.curdir, output_dir: str = '/results/',
-                 model=None) -> 'Model':
+def run_solution(dataset_train: torch.utils.data.Dataset, data_dir: str = os.curdir, output_dir: str = '/results/') -> 'Model':
     """
     Run your task 2 solution.
     This method should train your model, evaluate it, and return the trained model at the end.
@@ -28,9 +27,9 @@ def run_solution(dataset_train: torch.utils.data.Dataset, data_dir: str = os.cur
     :param data_dir: Directory containing the datasets
     :return: Your trained model
     """
-    if model is None:
-        # Create model
-        model = Model()
+
+    # Create model
+    model = Model()
 
     # Train the model
     print('Training model')
@@ -54,15 +53,15 @@ class Model(object):
     else the checker will fail!
     """
 
-    def __init__(self, num_epochs=100, batch_size=128, learning_rate=1e-3, hidden_layers=(100,100), use_densenet=False, print_interval=100):
+    def __init__(self):
         # Hyperparameters and general parameters
         # You might want to play around with those
-        self.num_epochs = num_epochs  # number of training epochs
-        self.batch_size = batch_size  # training batch size
-        #learning_rate = 1e-3  # training learning rates
-        #hidden_layers = (100,100)  # for each entry, creates a hidden layer with the corresponding number of units
-        #use_densenet = False  # set this to True in order to run a DenseNet for comparison
-        self.print_interval = print_interval # number of batches until updated metrics are displayed during training
+        self.num_epochs = 100  # number of training epochs
+        self.batch_size = 128  # training batch size
+        learning_rate = 1e-3  # training learning rates
+        hidden_layers = (100, 100)  # for each entry, creates a hidden layer with the corresponding number of units
+        use_densenet = False  # set this to True in order to run a DenseNet for comparison
+        self.print_interval = 100  # number of batches until updated metrics are displayed during training
 
         # Determine network type
         if use_densenet:
@@ -87,8 +86,6 @@ class Model(object):
         :param dataset: Dataset you should use for training
         """
 
-        print('Model starting to train')
-
         train_loader = torch.utils.data.DataLoader(
             dataset, batch_size=self.batch_size, shuffle=True, drop_last=True
         )
@@ -97,14 +94,12 @@ class Model(object):
 
         progress_bar = trange(self.num_epochs)
         for _ in progress_bar:
-            print(f'epoch number {_}')
             num_batches = len(train_loader)
-            pi_i = 2**(num_batches - 1) / (2**num_batches - 1)
             for batch_idx, (batch_x, batch_y) in enumerate(train_loader):
                 # batch_x are of shape (batch_size, 784), batch_y are of shape (batch_size,)
 
                 self.network.zero_grad()
-                #print('starting forward pass')
+
                 if isinstance(self.network, DenseNet):
                     # DenseNet training step
 
@@ -115,7 +110,6 @@ class Model(object):
                     # We use the negative log likelihood as the loss
                     # Combining nll_loss with a log_softmax is better for numeric stability
                     loss = F.nll_loss(F.log_softmax(current_logits, dim=1), batch_y, reduction='sum')
-                    
 
                     # Backpropagate to get the gradients
                     loss.backward()
@@ -123,31 +117,8 @@ class Model(object):
                     # BayesNet training step via Bayes by backprop
                     assert isinstance(self.network, BayesNet)
 
-                    f = self.network.forward(batch_x)
-
-                    # print('doing loss')
-                    # Calculous of the weighted loss
-                    class_predicted_probs = F.softmax(f[0], dim=1)
-                    data_predicted_probs = torch.sum(class_predicted_probs * F.one_hot(batch_y, num_classes=10), dim=1)
-                    eps=1e-5
-                    data_predicted_probs = torch.max(data_predicted_probs, torch.tensor(eps).expand_as(data_predicted_probs))
-                    num_not_maxed = torch.sum(data_predicted_probs > eps)
-                    log_prob_of_data_given_network = torch.sum(
-                        torch.log( data_predicted_probs)
-                    )
-                    # loss = pi_i * (torch.sum(f[2]) - torch.sum(f[1])) - log_prob_of_data_given_network
-                    loss = (torch.sum(f[2]) - torch.sum(f[1])) - log_prob_of_data_given_network
-                    pi_i = pi_i / 2
-                    # print(torch.sum( torch.log( torch.sum( f[0] * F.one_hot(batch_y), dim = 1 ))))
-                    # print("loss",loss)
-                    # print('doing backward')
-                    torch.autograd.set_detect_anomaly(True)
-                    # loss.backward(retain_graph = True)
-                    loss.backward()
-
                     # TODO: Implement Bayes by backprop training here
 
-                #print('doing gradient step')
                 self.optimizer.step()
 
                 # Update progress bar with accuracy occasionally
@@ -159,9 +130,6 @@ class Model(object):
                         current_logits, _, _ = self.network(batch_x)
                     current_accuracy = (current_logits.argmax(axis=1) == batch_y).float().mean()
                     progress_bar.set_postfix(loss=loss.item(), acc=current_accuracy.item())
-                    print(self.network.layers[0].weights_var_posterior.mu)
-                    print(self.network.layers[1].bias_var_posterior.mu[:10])
-                    print(self.network.layers[1].weights_var_posterior.rho)
 
     def predict(self, data_loader: torch.utils.data.DataLoader) -> np.ndarray:
         """
@@ -204,8 +172,6 @@ class BayesianLayer(nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-
-        print(f'initialising bayesian layer of size {self.in_features} x {self.out_features}')
         self.use_bias = bias
 
         # TODO: Create a suitable prior for weights and biases as an instance of ParameterDistribution.
@@ -213,12 +179,9 @@ class BayesianLayer(nn.Module):
         #  You can create constants using torch.tensor(...).
         #  Do NOT use torch.Parameter(...) here since the prior should not be optimized!
         #  Example: self.prior = MyPrior(torch.tensor(0.0), torch.tensor(1.0))
-        self.weights_prior = MultivariateDiagonalGaussian(torch.zeros(out_features * in_features), torch.ones(out_features * in_features))
-        self.bias_prior = MultivariateDiagonalGaussian(torch.zeros(out_features), torch.ones(out_features))
-        assert isinstance(self.weights_prior, ParameterDistribution)
-        assert isinstance(self.bias_prior, ParameterDistribution)
-        assert not any(True for _ in self.weights_prior.parameters()), 'Prior cannot have parameters'
-        assert not any(True for _ in self.bias_prior.parameters()), 'Prior cannot have parameters'
+        self.prior = None
+        assert isinstance(self.prior, ParameterDistribution)
+        assert not any(True for _ in self.prior.parameters()), 'Prior cannot have parameters'
 
         # TODO: Create a suitable variational posterior for weights as an instance of ParameterDistribution.
         #  You need to create separate ParameterDistribution instances for weights and biases,
@@ -230,8 +193,7 @@ class BayesianLayer(nn.Module):
         #      torch.nn.Parameter(torch.zeros((out_features, in_features))),
         #      torch.nn.Parameter(torch.ones((out_features, in_features)))
         #  )
-        self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features*in_features))),
-                                                                  torch.nn.Parameter(torch.ones((out_features*in_features))))
+        self.weights_var_posterior = None
 
         assert isinstance(self.weights_var_posterior, ParameterDistribution)
         assert any(True for _ in self.weights_var_posterior.parameters()), 'Weight posterior must have parameters'
@@ -239,7 +201,7 @@ class BayesianLayer(nn.Module):
         if self.use_bias:
             # TODO: As for the weights, create the bias variational posterior instance here.
             #  Make sure to follow the same rules as for the weight variational posterior.
-            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features,))),torch.nn.Parameter(torch.ones((out_features,))))
+            self.bias_var_posterior = None
             assert isinstance(self.bias_var_posterior, ParameterDistribution)
             assert any(True for _ in self.bias_var_posterior.parameters()), 'Bias posterior must have parameters'
         else:
@@ -261,18 +223,12 @@ class BayesianLayer(nn.Module):
         # TODO: Perform a forward pass as described in this method's docstring.
         #  Make sure to check whether `self.use_bias` is True,
         #  and if yes, include the bias as well.
-        
-        weights = self.weights_var_posterior.sample()
-        log_prior = self.weights_prior.log_likelihood(weights)
-        log_variational_posterior = self.weights_var_posterior.log_likelihood(weights)
+        log_prior = torch.tensor(0.0)
+        log_variational_posterior = torch.tensor(0.0)
+        weights = None
         bias = None
-        if self.use_bias:
-            bias = self.bias_var_posterior.sample()
-            log_prior += self.bias_prior.log_likelihood(bias)
-            log_variational_posterior += self.bias_var_posterior.log_likelihood(bias)
 
-
-        return F.linear(inputs, weights.reshape(self.out_features, self.in_features), bias), log_prior, log_variational_posterior
+        return F.linear(inputs, weights, bias), log_prior, log_variational_posterior
 
 
 class BayesNet(nn.Module):
@@ -317,19 +273,8 @@ class BayesNet(nn.Module):
         #  Don't forget to apply your activation function in between BayesianLayers!
         log_prior = torch.tensor(0.0)
         log_variational_posterior = torch.tensor(0.0)
-        current_features = x
+        output_features = None
 
-        for idx, layer in enumerate(self.layers):
-            f = layer.forward(current_features)
-            new_features = f[0]
-            log_prior += f[1]
-            log_variational_posterior += f[2]
-            if idx < len(self.layers) - 1:
-                new_features = self.activation(new_features)
-            current_features = new_features
-            
-        output_features = current_features
-        
         return output_features, log_prior, log_variational_posterior
 
     def predict_probabilities(self, x: torch.Tensor, num_mc_samples: int = 10) -> torch.Tensor:
@@ -362,17 +307,13 @@ class UnivariateGaussian(ParameterDistribution):
         self.mu = mu
         self.sigma = sigma
 
-        self.dist = torch.distributions.normal.Normal(mu, sigma)
-
     def log_likelihood(self, values: torch.Tensor) -> torch.Tensor:
         # TODO: Implement this
-        #return 0.0
-        return self.dist.log_prob(values)
+        return 0.0
 
     def sample(self) -> torch.Tensor:
         # TODO: Implement this
-        #raise NotImplementedError()
-        return self.dist.sample()
+        raise NotImplementedError()
 
 
 class MultivariateDiagonalGaussian(ParameterDistribution):
@@ -389,22 +330,14 @@ class MultivariateDiagonalGaussian(ParameterDistribution):
         assert mu.size() == rho.size()
         self.mu = mu
         self.rho = rho
-        softplus = torch.nn.Softplus()
-        #sigma = torch.diag(softplus(self.rho))
-        #self.dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, sigma)
-
-        #normal = torch.distributions.Normal(self.mu, softplus(self.rho)) softplus caused an error during backpropagation
-        normal = torch.distributions.Normal(self.mu, self.rho)
-        self.dist = torch.distributions.Independent(normal, 1)
 
     def log_likelihood(self, values: torch.Tensor) -> torch.Tensor:
         # TODO: Implement this
-        return self.dist.log_prob(values)
+        return 0.0
 
     def sample(self) -> torch.Tensor:
         # TODO: Implement this
-        # raise NotImplementedError()
-        return self.dist.sample()
+        raise NotImplementedError()
 
 
 def evaluate(model: Model, eval_loader: torch.utils.data.DataLoader, data_dir: str, output_dir: str):
@@ -592,11 +525,11 @@ class DenseNet(nn.Module):
 
 
 def main():
-    # raise RuntimeError(
-    #     'This main method is for illustrative purposes only and will NEVER be called by the checker!\n'
-    #     'The checker always calls run_solution directly.\n'
-    #     'Please implement your solution exclusively in the methods and classes mentioned in the task description.'
-    # )
+    raise RuntimeError(
+        'This main method is for illustrative purposes only and will NEVER be called by the checker!\n'
+        'The checker always calls run_solution directly.\n'
+        'Please implement your solution exclusively in the methods and classes mentioned in the task description.'
+    )
 
     # Load training data
     data_dir = os.curdir
@@ -607,7 +540,8 @@ def main():
     dataset_train = torch.utils.data.TensorDataset(x_train, y_train)
 
     # Run actual solution
-    run_solution(dataset_train, data_dir=data_dir, output_dir=output_dir, model=Model(use_densenet=False, print_interval=50, learning_rate=1e-2))
+    run_solution(dataset_train, data_dir=data_dir, output_dir=output_dir)
+
 
 if __name__ == "__main__":
     main()

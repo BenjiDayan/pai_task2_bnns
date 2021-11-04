@@ -12,6 +12,14 @@ from tqdm import trange
 
 from util import ece, ParameterDistribution
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+# global anomaly detection flag helps out?
+torch.autograd.set_detect_anomaly(True)
+
+
 # Set `EXTENDED_EVALUATION` to `True` in order to visualize your predictions.
 EXTENDED_EVALUATION = False
 
@@ -123,6 +131,7 @@ class Model(object):
                     # BayesNet training step via Bayes by backprop
                     assert isinstance(self.network, BayesNet)
 
+                    # output, log_prior, log_variational_posterior
                     f = self.network.forward(batch_x)
 
                     # print('doing loss')
@@ -141,9 +150,8 @@ class Model(object):
                     # print(torch.sum( torch.log( torch.sum( f[0] * F.one_hot(batch_y), dim = 1 ))))
                     # print("loss",loss)
                     # print('doing backward')
-                    torch.autograd.set_detect_anomaly(True)
                     # loss.backward(retain_graph = True)
-                    loss.backward()
+                    loss.backward(retain_graph=True)
 
                     # TODO: Implement Bayes by backprop training here
 
@@ -159,9 +167,9 @@ class Model(object):
                         current_logits, _, _ = self.network(batch_x)
                     current_accuracy = (current_logits.argmax(axis=1) == batch_y).float().mean()
                     progress_bar.set_postfix(loss=loss.item(), acc=current_accuracy.item())
-                    print(self.network.layers[0].weights_var_posterior.mu)
-                    print(self.network.layers[1].bias_var_posterior.mu[:10])
-                    print(self.network.layers[1].weights_var_posterior.rho)
+                    # logging.debug(self.network.layers[0].weights_var_posterior.mu)
+                    # logging.debug(self.network.layers[1].bias_var_posterior.mu[:10])
+                    # logging.debug(self.network.layers[1].weights_var_posterior.rho)
 
     def predict(self, data_loader: torch.utils.data.DataLoader) -> np.ndarray:
         """
@@ -193,7 +201,7 @@ class BayesianLayer(nn.Module):
     It maintains a prior and variational posterior for the weights (and biases)
     and uses sampling to approximate the gradients via Bayes by backprop.
     """
-    def __init__(self, in_features: int, out_features: int, bias: bool = True):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, softplus=True):
         """
         Create a BayesianLayer.
 
@@ -231,7 +239,7 @@ class BayesianLayer(nn.Module):
         #      torch.nn.Parameter(torch.ones((out_features, in_features)))
         #  )
         self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features*in_features))),
-                                                                  torch.nn.Parameter(torch.ones((out_features*in_features))))
+                                                                  torch.nn.Parameter(torch.ones((out_features*in_features))), softplus=softplus)
 
         assert isinstance(self.weights_var_posterior, ParameterDistribution)
         assert any(True for _ in self.weights_var_posterior.parameters()), 'Weight posterior must have parameters'
@@ -239,7 +247,7 @@ class BayesianLayer(nn.Module):
         if self.use_bias:
             # TODO: As for the weights, create the bias variational posterior instance here.
             #  Make sure to follow the same rules as for the weight variational posterior.
-            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features,))),torch.nn.Parameter(torch.ones((out_features,))))
+            self.bias_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(torch.zeros((out_features,))),torch.nn.Parameter(torch.ones((out_features,))), softplus=softplus)
             assert isinstance(self.bias_var_posterior, ParameterDistribution)
             assert any(True for _ in self.bias_var_posterior.parameters()), 'Bias posterior must have parameters'
         else:
@@ -384,17 +392,19 @@ class MultivariateDiagonalGaussian(ParameterDistribution):
     sigma = softplus(rho).
     """
 
-    def __init__(self, mu: torch.Tensor, rho: torch.Tensor):
+    def __init__(self, mu: torch.Tensor, rho: torch.Tensor, softplus=True):
         super(MultivariateDiagonalGaussian, self).__init__()  # always make sure to include the super-class init call!
         assert mu.size() == rho.size()
         self.mu = mu
         self.rho = rho
-        softplus = torch.nn.Softplus()
+        # softplus = torch.nn.Softplus()
         #sigma = torch.diag(softplus(self.rho))
         #self.dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, sigma)
 
-        #normal = torch.distributions.Normal(self.mu, softplus(self.rho)) softplus caused an error during backpropagation
-        normal = torch.distributions.Normal(self.mu, self.rho)
+        if not softplus:
+            normal = torch.distributions.Normal(self.mu, self.rho)
+        else:
+            normal = torch.distributions.Normal(self.mu, F.softplus(self.rho))
         self.dist = torch.distributions.Independent(normal, 1)
 
     def log_likelihood(self, values: torch.Tensor) -> torch.Tensor:
@@ -606,8 +616,14 @@ def main():
     y_train = torch.from_numpy(raw_train_data['train_y']).long()
     dataset_train = torch.utils.data.TensorDataset(x_train, y_train)
 
+
+    x_train_mini = x_train[:600]
+    y_train_mini = y_train[:600]
+    dataset_train_mini = torch.utils.data.TensorDataset(x_train_mini, y_train_mini)
+
     # Run actual solution
-    run_solution(dataset_train, data_dir=data_dir, output_dir=output_dir, model=Model(use_densenet=False, print_interval=50, learning_rate=1e-2))
+    run_solution(dataset_train_mini, data_dir=data_dir, output_dir=output_dir,
+                 model=Model(use_densenet=False, batch_size=32, print_interval=100, learning_rate=1e-3))
 
 if __name__ == "__main__":
     main()
