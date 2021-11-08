@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import roc_auc_score, average_precision_score
 from torch import nn
 from torch.nn import functional as F
+from torch import distributions as D
 from tqdm import trange
 
 from util import ece, ParameterDistribution
@@ -119,7 +120,9 @@ class Model(object):
                     current_logits, log_prior, log_var_post = self.network(batch_x)
                     nll_loss = F.nll_loss(F.log_softmax(current_logits, dim=1), batch_y, reduction='sum')
                     reg_term = (log_var_post - log_prior)
-                    loss = nll_loss + reg_term
+                    pi_i = 1#2**(num_batches - batch_idx) / (2**num_batches - 1)
+                    loss = nll_loss +  pi_i * reg_term
+                    
                     loss.backward()
                     # TODO: Implement Bayes by backprop training here
 
@@ -187,6 +190,12 @@ class BayesianLayer(nn.Module):
         #  Example: self.prior = MyPrior(torch.tensor(0.0), torch.tensor(1.0))
         self.weights_prior = MultivariateDiagonalGaussian(torch.zeros(out_features * in_features), torch.ones(out_features * in_features))
         self.bias_prior = MultivariateDiagonalGaussian(torch.zeros(out_features), torch.ones(out_features))
+
+        rho1 = 2
+        rho2 = -10
+        pi = 0.7
+        self.weights_prior = GaussianMixture(torch.zeros(out_features * in_features), rho1 * torch.ones(out_features * in_features), torch.zeros(out_features * in_features), rho2 * torch.ones(out_features * in_features), pi)
+        self.bias_prior = GaussianMixture(torch.zeros(out_features), rho1 * torch.ones(out_features), torch.zeros(out_features), rho2 * torch.ones(out_features), pi)
         assert isinstance(self.weights_prior, ParameterDistribution)
         assert isinstance(self.bias_prior, ParameterDistribution)
         assert not any(True for _ in self.weights_prior.parameters()), 'Prior cannot have parameters'
@@ -203,7 +212,7 @@ class BayesianLayer(nn.Module):
         #      torch.nn.Parameter(torch.ones((out_features, in_features)))
         #  )
         small_const = 0.001
-        large_neg_const = -10.
+        large_neg_const = -10
         self.weights_var_posterior = MultivariateDiagonalGaussian(torch.nn.Parameter(small_const * torch.ones((out_features*in_features))),
                                                                   torch.nn.Parameter(large_neg_const *  torch.ones((out_features*in_features))))
 
@@ -305,7 +314,6 @@ class UnivariateGaussian(ParameterDistribution):
         # TODO: Implement this
         raise NotImplementedError()
 
-
 class MultivariateDiagonalGaussian(ParameterDistribution):
     def __init__(self, mu: torch.Tensor, rho: torch.Tensor):
         super(MultivariateDiagonalGaussian, self).__init__()
@@ -319,6 +327,27 @@ class MultivariateDiagonalGaussian(ParameterDistribution):
     def sample(self) -> torch.Tensor:
         return self.mu + torch.randn_like(self.rho) * torch.exp(self.rho)
 
+class GaussianMixture(ParameterDistribution):
+    """
+    Mixture of Gaussians  (Blundel et al. 2015).
+    For multivariate data, this assumes all elements to be i.i.d.
+    """
+
+    def __init__(self, mu1: torch.Tensor, rho1: torch.Tensor, mu2: torch.Tensor, rho2: torch.Tensor, pi):
+        super(GaussianMixture, self).__init__()  # always make sure to include the super-class init call!
+        assert mu1.size() == rho1.size()  and mu2.size() ==  rho2.size() 
+        mix = torch.distributions.categorical.Categorical(torch.Tensor([pi, 1- pi]))
+        mu = torch.cat((mu1[None] , mu2[None]), 0)
+        sigma = torch.cat((torch.exp(rho1)[None] , torch.exp(rho2)[None]), 0)
+        comp = D.Independent(D.Normal(mu, sigma), 1)
+        self.my_dist = torch.distributions.MixtureSameFamily(mix, comp)
+
+    def log_likelihood(self, values: torch.Tensor) -> torch.Tensor:
+        log_prob = self.my_dist.log_prob(values)
+        return log_prob.sum()
+
+    def sample(self) -> torch.Tensor:
+       return self.my_dist.sample()
 
 def evaluate(model: Model, eval_loader: torch.utils.data.DataLoader, data_dir: str, output_dir: str):
     """
